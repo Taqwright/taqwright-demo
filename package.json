@@ -1,0 +1,24 @@
+{
+  "name": "taq-demo",
+  "private": true,
+  "version": "0.0.1",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "taqwright test",
+    "codegen": "taqwright codegen",
+    "doctor": "taqwright doctor",
+    "devices": "taqwright devices",
+    "report": "taqwright show-report"
+  },
+  "dependencies": {
+    "taqwright": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
