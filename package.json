@@ -11,10 +11,8 @@
     "devices": "taqwright devices",
     "report": "taqwright show-report"
   },
-  "dependencies": {
-    "taqwright": "^0.0.1"
-  },
   "devDependencies": {
+    "@taqwright/taqwright": "git+ssh://git@github.com/taqelah/taqwright.git",
     "@types/node": "^24.0.0",
     "typescript": "^5.4.0"
   },
