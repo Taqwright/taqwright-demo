@@ -1,4 +1,4 @@
-import { test, expect } from 'taqwright';
+import { test, expect } from '@taqwright/taqwright';
 
 test('drag and drop', async ({ mobile }) => {
   await mobile.getByXpath("//*[@hint='Username']").fill('emma@demoapp.com');

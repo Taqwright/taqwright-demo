@@ -6,15 +6,18 @@
   "type": "module",
   "scripts": {
     "test": "taqwright test",
+    "test:android": "taqwright test --project android-single && taqwright test --project android-pool-2 && taqwright test --project android-auto-1 && taqwright test --project android-auto-2",
+    "test:single": "taqwright test --project android-single",
+    "test:pool": "taqwright test --project android-pool-2",
+    "test:auto1": "taqwright test --project android-auto-1",
+    "test:auto2": "taqwright test --project android-auto-2",
     "codegen": "taqwright codegen",
     "doctor": "taqwright doctor",
     "devices": "taqwright devices",
     "report": "taqwright show-report"
   },
-  "dependencies": {
-    "taqwright": "^0.0.1"
-  },
   "devDependencies": {
+    "@taqwright/taqwright": "git+ssh://git@github.com/taqelah/taqwright.git",
     "@types/node": "^24.0.0",
     "typescript": "^5.4.0"
   },
