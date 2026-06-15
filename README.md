@@ -1,7 +1,7 @@
 # taq-demo
 
 Mobile UI test suite for the **DemoApp** (a Flutter app), built with
-[taqwright](https://www.npmjs.com/package/taqwright) — a Playwright-style test
+[taqwright](https://www.npmjs.com/package/@taqwright/taqwright) — a Playwright-style test
 runner with a flat locator API over Appium. Tests run on local emulators /
 simulators or on real devices in the cloud via BrowserStack.
 
