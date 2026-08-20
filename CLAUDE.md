@@ -35,7 +35,10 @@ npm run report         # open the HTML report
 npx tsc --noEmit       # typecheck (tests + config, strict mode)
 ```
 
-Run a single spec: `npx taqwright test --project android-single tests/android/long-press.spec.ts`
+Run a single spec — the file path goes **first**: `npx taqwright test tests/android/long-press.spec.ts --project android-single`
+
+(`--project` is declared `<name...>`, so a path after it is read as a second project name and
+the run dies with `Project(s) "tests/android/long-press.spec.ts" not found`.)
 
 ## Rules
 
