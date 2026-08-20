@@ -3,7 +3,7 @@
 Mobile UI test suite for the **DemoApp** (a Flutter app), built with
 [taqwright](https://www.npmjs.com/package/@taqwright/taqwright) — a Playwright-style test
 runner with a flat locator API over Appium. Tests run on local emulators /
-simulators or on real devices in the cloud via BrowserStack.
+simulators or on real devices in the cloud via BrowserStack or LambdaTest.
 
 ## Requirements
 
@@ -85,6 +85,26 @@ TAQ_APK=./path/to/app.apk  npx taqwright test --project android-single
 TAQ_IPA=bs://<app-id>      npx taqwright test --project browserstack-ios
 ```
 
+### Running on LambdaTest
+
+Same shape as BrowserStack, different credential env vars:
+
+```bash
+LAMBDATEST_USERNAME=… LAMBDATEST_ACCESS_KEY=… \
+  npx taqwright test --project lambdatest-android
+
+LAMBDATEST_USERNAME=… LAMBDATEST_ACCESS_KEY=… TAQ_IPA=./path/to/app.ipa \
+  npx taqwright test --project lambdatest-ios
+```
+
+`lambdatest-android` also runs **5 sessions in parallel** — keep it at or below
+your plan's concurrency limit. It points at a pre-uploaded app id
+(`lt://APP1016036205…`, DemoApp **v1.0.1** — newer than the v1.0.0 `.apk` in
+[app/](app/)), so there's no per-run upload; pass a local `.apk` path or another
+`lt://` id via `TAQ_APK` to change that. `lambdatest-ios` has no app id or
+checked-in `.ipa`, so it requires `TAQ_IPA` (a local `.ipa` to upload, or an
+already-uploaded `lt://<app-id>`).
+
 ## Project layout
 
 ```
@@ -107,8 +127,10 @@ TAQ_IPA=bs://<app-id>      npx taqwright test --project browserstack-ios
 | `android-auto-1`       | Android  | auto-detect host AVDs                       | 1       | local        |
 | `android-auto-2`       | Android  | auto-detect host AVDs                       | 2       | local        |
 | `browserstack-android` | Android  | Google Pixel 8 (Android 14)                | 5       | BrowserStack |
+| `lambdatest-android`   | Android  | Pixel 8 (Android 14)                        | 5       | LambdaTest   |
 | `ios`                  | iOS      | iPhone 17 Pro (simulator)                   | 1       | local        |
 | `browserstack-ios`     | iOS      | iPhone 15 (iOS 17)                          | 1       | BrowserStack |
+| `lambdatest-ios`       | iOS      | iPhone 15 (iOS 17)                          | 1       | LambdaTest   |
 
 See [taqwright.config.ts](taqwright.config.ts) for the full configuration.
 

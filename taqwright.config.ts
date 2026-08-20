@@ -202,6 +202,56 @@ export default defineConfig({
       },
     },
     {
+      // Cloud execution on LambdaTest — Android real device. Credentials come
+      // from env vars LAMBDATEST_USERNAME / LAMBDATEST_ACCESS_KEY (the provider
+      // fails fast at globalSetup if either is missing).
+      //   LAMBDATEST_USERNAME=… LAMBDATEST_ACCESS_KEY=… \
+      //   npx taqwright test --project lambdatest-android
+      name: 'lambdatest-android',
+      testDir: './tests/android',
+      // Same cloud-parallelism rule as BrowserStack: must be <= your LambdaTest
+      // plan's concurrent-session limit, or the extra sessions sit in the queue
+      // (LambdaTest waits up to `queueTimeout`, 600s, before failing).
+      workers: 5,
+      // Real-device allocation + app install happen before the test body, same
+      // as the BrowserStack project — keep the wider budget rather than the
+      // global 180s.
+      timeout: 300_000,
+      use: {
+        platform: Platform.ANDROID,
+        device: {
+          provider: 'lambdatest',
+          // LambdaTest's own device naming — the provider also aliases
+          // 'Google Pixel 8' → 'Pixel 8' and '14.0' → '14', so the BrowserStack
+          // spelling would work too; use LambdaTest's to keep it obvious.
+          name: 'Pixel 8',
+          osVersion: '14',
+        },
+        // Cloud-only knob (wdio `connectionRetryTimeout`; the provider defaults
+        // it to 300s already). The rest of `appium.*` is local-only and does
+        // not apply here.
+        appium: { connectionTimeout: 240_000 },
+        // Pre-uploaded LambdaTest app id (DemoApp-v1.0.1) — anything starting
+        // with `lt://` is passed straight through, so there's no per-run upload.
+        // NOTE: this is v1.0.1, newer than the v1.0.0 .apk checked into app/.
+        // Override with a local .apk path (which globalSetup then uploads once
+        // per run) or a different lt:// id via TAQ_APK.
+        buildPath: process.env.TAQ_APK || 'lt://APP10160362051783065242028848',
+        appBundleId: 'com.taqelah.demo_app',
+        resetBetweenTests: true,
+        trace: 'on',
+        video: 'on-failure',
+        // Bracket syntax — the nested `appium:settings: {}` form is NOT applied.
+        // Anything here that isn't namespaced (no ':') is folded into
+        // `lt:options` by the provider, so LambdaTest-specific knobs can be set
+        // either bare or under an explicit `lt:options` object.
+        capabilities: {
+          'appium:settings[includeExtrasInPageSource]': true,
+          'appium:settings[allowInvisibleElements]': true,
+        },
+      },
+    },
+    {
       // Local iOS simulator. taqwright uses provider 'emulator' for simulators
       // too; XCUITest auto-boots the named simulator. Needs the .app (simulator
       // build) and the iOS bundle id (note: camelCase, differs from Android).
@@ -242,6 +292,29 @@ export default defineConfig({
         // Pre-uploaded BrowserStack iOS app id — used directly, so no per-run
         // upload. Override with a local .ipa path (or another bs:// id) via TAQ_IPA.
         buildPath: process.env.TAQ_IPA || 'bs://9ed3bef10e3573786f0918cba5721ac0c0aa3525',
+        appBundleId: 'com.taqelah.demoApp',
+        resetBetweenTests: true,
+      },
+    },
+    {
+      // Cloud execution on LambdaTest — iOS real device. Needs the same
+      // unsigned .ipa device build as the BrowserStack iOS project (LambdaTest
+      // re-signs it on upload). Creds via env LAMBDATEST_USERNAME /
+      // LAMBDATEST_ACCESS_KEY.
+      //   npx taqwright test --project lambdatest-ios
+      name: 'lambdatest-ios',
+      testDir: './tests/ios',
+      use: {
+        platform: Platform.IOS,
+        device: {
+          provider: 'lambdatest',
+          name: 'iPhone 15',
+          osVersion: '17',
+        },
+        // No .ipa is checked in (app/ holds the .app simulator build, which a
+        // real device can't run), so this project needs TAQ_IPA — either a
+        // local .ipa path to upload, or an already-uploaded `lt://` app id.
+        buildPath: process.env.TAQ_IPA || '',
         appBundleId: 'com.taqelah.demoApp',
         resetBetweenTests: true,
       },
