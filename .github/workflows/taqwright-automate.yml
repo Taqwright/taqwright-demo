@@ -1,0 +1,252 @@
+# Turns a run you recorded in Taqwright LIME into a pull request on this repo.
+#
+# You press "Open a pull request" in the LIME console; LIME starts this workflow with the id
+# of the run you just watched. The run already happened on a real device, so nothing here
+# books a device, builds an app, or spawns a test agent. It collects the recording and asks a
+# coding agent to write the test in THIS project's own conventions.
+#
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# EDIT THIS FILE FREELY. Change the runner, the Node version, add a Slack notification, push
+# to a branch instead of opening a pull request. Four things have to survive your edits or
+# LIME cannot start it:
+#
+#   1. the `workflow_dispatch` trigger, with inputs named exactly `run_id` and `test_name`
+#   2. this file on the repository's DEFAULT branch (that is the ref dispatch resolves)
+#   3. `.lime/recorded-steps.json` written from the run's `steps`
+#   4. `.lime/run.json` carrying at least `goal`, `platform` and `target`
+#
+# Everything else is yours.
+# ─────────────────────────────────────────────────────────────────────────────────────────
+#
+# SECRETS you need to add (Settings → Secrets and variables → Actions):
+#
+#   LIME_CI_TOKEN       REQUIRED. Create it in LIME under Settings → CI token.
+#   ANTHROPIC_API_KEY   REQUIRED, unless you pick another agent below:
+#                         AGENT: gemini   → GEMINI_API_KEY
+#                         AGENT: copilot  → COPILOT_TOKEN (needs a PAID Copilot seat)
+#
+# Both are genuinely required. A coding agent is what turns the recording into a test that
+# fits THIS project, and there is no useful half-measure: committing the raw recording
+# instead would put the text typed into your app — passwords included — into your git
+# history, which is exactly what this workflow deletes before it commits. Without a key,
+# run `lime-cli adapt` on your own machine instead.
+
+name: taqwright-automate
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The LIME run to turn into a test
+        required: true
+      test_name:
+        description: Class and file name for the generated test
+        required: true
+
+env:
+  LIME_SERVER: https://www.taqwright.ai
+  # claude-code | gemini | copilot
+  AGENT: claude-code
+  # Must match the agent above; blank uses the per-agent default below. A Claude model name
+  # passed to Gemini is an error, not a fallback, which is why this is blank rather than set
+  # to any one agent's model.
+  AGENT_MODEL: ''
+  # Used when AGENT is gemini and AGENT_MODEL is blank. Pinned rather than left to the CLI's
+  # own default so the model does not change under you between runs. Note this is a
+  # flash-lite: cheap and fast. Writing a test in your project's conventions is a reasoning
+  # task, so if the generated tests come out shallow, try a pro model here before assuming
+  # the recording was bad.
+  GEMINI_MODEL: gemini-3.5-flash-lite
+  # Claude only. Gemini CLI and Copilot have no equivalent hard spend stop.
+  AGENT_BUDGET_USD: '1.00'
+
+jobs:
+  automate:
+    runs-on: ubuntu-latest
+    # Never cancel-in-progress: a cancelled job skips its cleanup and can leave a half-written
+    # branch behind.
+    concurrency:
+      group: taqwright-automate-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # lime-cli needs Node 18+. If your project pins a different version, add a second
+      # setup-node after the adapt step rather than changing this one.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install the tools
+        run: |
+          set -euo pipefail
+          npm install -g @taqwright/lime-cli
+          case "${{ env.AGENT }}" in
+            claude-code) npm install -g @anthropic-ai/claude-code ;;
+            gemini)      npm install -g @google/gemini-cli ;;
+            copilot)     npm install -g @github/copilot ;;
+            *) echo "::error::AGENT must be claude-code, gemini or copilot." >&2; exit 1 ;;
+          esac
+
+      # Checked BEFORE anything else runs. Without this the job dies several steps later
+      # inside the agent's own auth error, which names neither the secret nor this file.
+      - name: Check the secrets are there
+        env:
+          LIME_CI_TOKEN: ${{ secrets.LIME_CI_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${LIME_CI_TOKEN:-}" ] || {
+            echo "::error::LIME_CI_TOKEN is not set. Add it under Settings → Secrets and variables → Actions. Create the token in LIME under Settings → CI token." >&2
+            exit 1; }
+          case "${{ env.AGENT }}" in
+            copilot) KEY="${COPILOT_TOKEN:-}"; NAME=COPILOT_TOKEN; EXTRA=" It needs a PAID Copilot seat; Free will not sustain agent runs." ;;
+            gemini)  KEY="${GEMINI_API_KEY:-}"; NAME=GEMINI_API_KEY; EXTRA="" ;;
+            *)       KEY="${ANTHROPIC_API_KEY:-}"; NAME=ANTHROPIC_API_KEY; EXTRA="" ;;
+          esac
+          [ -n "$KEY" ] || {
+            echo "::error::$NAME is not set for AGENT=${{ env.AGENT }}. Add it under Settings → Secrets and variables → Actions, or run 'lime-cli adapt' on your own machine instead.$EXTRA Committing the recording unadapted is not offered: it contains the text typed into your app, which routinely includes credentials." >&2
+            exit 1; }
+
+      # The recording. LIME stores it against your account; this fetches it with your CI
+      # token and lays it out exactly as a local `lime-cli` run would have.
+      #
+      # The `jq -e .success` check is LOAD-BEARING: this API answers failures with HTTP 200
+      # and `{"success": false}`, so curl alone reports success on a run that does not exist.
+      - name: Fetch the recorded run
+        env:
+          LIME_CI_TOKEN: ${{ secrets.LIME_CI_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .lime
+          # Deliberately NOT `curl -f`: it aborts with exit code 22 before any of the
+          # branches below can run, so a wrong token reads as "Process completed with exit
+          # code 22" rather than a sentence naming the secret.
+          CODE=$(curl -sS -o /tmp/lime-run.json -w '%{http_code}' \
+            -H "Authorization: Bearer $LIME_CI_TOKEN" \
+            "${LIME_SERVER}/api/cli/runs/${{ inputs.run_id }}")
+          case "$CODE" in
+            200) ;;
+            401) echo "::error::${LIME_SERVER} rejected LIME_CI_TOKEN. Check the secret is the token LIME issued, and that it has not expired (they last 90 days)." >&2; exit 1 ;;
+            404) echo "::error::${LIME_SERVER} has no API at that path. Check LIME_SERVER points at your LIME instance." >&2; exit 1 ;;
+            *)   echo "::error::${LIME_SERVER} answered $CODE fetching run ${{ inputs.run_id }}." >&2; exit 1 ;;
+          esac
+          # A 200 is not yet a success: this API reports failures in the BODY.
+          jq -e '.success' /tmp/lime-run.json > /dev/null \
+            || { echo "::error::$(jq -r '.error // "Could not read that run."' /tmp/lime-run.json) Run ${{ inputs.run_id }} must exist on ${LIME_SERVER} and belong to the account that issued LIME_CI_TOKEN — a run recorded against a different LIME instance will not be found here." >&2; exit 1; }
+
+          jq '.run.steps' /tmp/lime-run.json > .lime/recorded-steps.json
+          # What lime-cli reads for the brief. `target: local` keeps it off the cloud path.
+          jq '{goal: .run.goal, platform: .run.platform, target: "local", cloud: null}' \
+            /tmp/lime-run.json > .lime/run.json
+          echo "Collected $(jq '.stepCount // (.steps | length)' .lime/recorded-steps.json) steps."
+
+      # Works out what framework this repo uses and where its tests live, then writes
+      # .lime/ADAPT.md. No agent runs here. Add --framework / --dest to override.
+      - name: Prepare the brief
+        run: lime-cli export --test-name "${{ inputs.test_name }}"
+
+      # Flags that are not optional, per agent:
+      #   claude   --verbose is REQUIRED alongside --output-format stream-json in print mode
+      #   gemini   --approval-mode auto_edit is the analogue of Claude's acceptEdits. Prefer
+      #            it over --yolo, which auto-approves every tool including shell commands.
+      #   copilot  has no edits-only mode, so without all three --allow-all-* it dies with
+      #            "permission denied" even for mkdir.
+      - name: Write the test
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          PROMPT="Read .lime/ADAPT.md and follow it exactly."
+          MODEL="${{ env.AGENT_MODEL }}"
+          case "${{ env.AGENT }}" in
+            copilot)
+              copilot -p "$PROMPT" --allow-all-tools --allow-all-paths --allow-all-urls
+              ;;
+            gemini)
+              gemini -p "$PROMPT" --approval-mode auto_edit \
+                -m "${MODEL:-${{ env.GEMINI_MODEL }}}"
+              ;;
+            *)
+              claude -p "$PROMPT" --output-format stream-json --verbose \
+                --permission-mode acceptEdits \
+                ${MODEL:+--model "$MODEL"} \
+                --max-budget-usd "${{ env.AGENT_BUDGET_USD }}"
+              ;;
+          esac
+
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Summarise the steps BEFORE .lime is deleted, to /tmp so it never gets committed.
+          # verb/target/locator ONLY — never `value`, which holds whatever was typed into the
+          # app and routinely carries test credentials.
+          #
+          # Every field here is text scraped off the app's screen, so it is untrusted input
+          # heading for a pull request body: pipes and backticks would break out of the table
+          # and a crafted label could forge a link. Strip the metacharacters and truncate.
+          node -e '
+            const clean = (v) => String(v ?? "—").replace(/[|`\r\n\[\]()<>]/g, " ").trim().slice(0, 40) || "—";
+            let steps = [];
+            try { steps = (require("./.lime/recorded-steps.json").steps) || []; } catch (_) {}
+            if (!steps.length) process.exit(0);
+            const rows = steps.map((x, i) =>
+              `| ${i} | ${clean(x.verb)} | ${clean(x.target)} | ${clean(x.locator && x.locator.type || x.gesture)} |`);
+            process.stdout.write(
+              "| # | action | target | found by |\n|---|---|---|---|\n" + rows.join("\n") + "\n");
+          ' > /tmp/steps.md 2>/dev/null || true
+
+          # .lime/ is scaffolding: briefs, and recorded steps that include whatever was typed
+          # into the app. It must not reach this repository's history.
+          rm -rf .lime
+
+          git config user.name "taqwright-lime[bot]"
+          git config user.email "taqwright-lime[bot]@users.noreply.github.com"
+          # Keyed on the RUN, not the test name: automating the same run twice would otherwise
+          # push to a branch that already exists, and git rejects that as a non-fast-forward
+          # ("fetch first") — which reads like a permissions problem and is not.
+          git checkout -b "taqwright/run-${{ inputs.run_id }}-$GITHUB_RUN_ID"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::error::The agent produced no changes, so there is nothing to open a pull request for. Check the step above for what it reported." >&2
+            exit 1
+          fi
+          git commit -m "test: ${{ inputs.test_name }}" -m "Recorded in Taqwright LIME (run ${{ inputs.run_id }})."
+
+          # Diagnose from what git actually said. Reporting every push failure as a permissions
+          # problem sends people to the wrong runbook.
+          if ! git push -u origin HEAD 2>/tmp/push-err; then
+            cat /tmp/push-err >&2
+            if grep -qiE 'denied|403|forbidden|not authorized' /tmp/push-err; then
+              echo "::error::Push denied. This job needs 'contents: write' and 'pull-requests: write', which are set above — check whether a branch protection rule or an organisation policy is blocking the default GITHUB_TOKEN." >&2
+            else
+              echo "::error::Push failed for the reason git printed above, which is NOT a permissions problem." >&2
+            fi
+            exit 1
+          fi
+
+          # Body built as a FILE with the goal passed as DATA. It is attacker-influenced text,
+          # and inside a double-quoted shell string $(…) would execute.
+          {
+            printf '**Test** `%s`\n\n' "${{ inputs.test_name }}"
+            printf '**Goal** %s\n\n' "$(jq -r '.run.goal // "—"' /tmp/lime-run.json)"
+            printf 'Recorded on %s in Taqwright LIME, run %s.\n\n' \
+              "$(jq -r '.run.platform // "a device"' /tmp/lime-run.json)" "${{ inputs.run_id }}"
+            echo "Written by ${{ env.AGENT }} from that recording. **Review the locators before merging.**"
+            echo
+            cat /tmp/steps.md 2>/dev/null || true
+          } > /tmp/pr-body.md
+
+          gh pr create --title "test: ${{ inputs.test_name }}" --body-file /tmp/pr-body.md
