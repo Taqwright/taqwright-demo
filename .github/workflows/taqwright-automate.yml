@@ -51,13 +51,19 @@ env:
   # passed to Gemini is an error, not a fallback, which is why this is blank rather than set
   # to any one agent's model.
   AGENT_MODEL: ''
-  # Used when AGENT is gemini and AGENT_MODEL is blank. Pinned rather than left to the CLI's
-  # own default so the model does not change under you between runs. Note this is a
-  # flash-lite: cheap and fast. Writing a test in your project's conventions is a reasoning
-  # task, so if the generated tests come out shallow, try a pro model here before assuming
-  # the recording was bad.
+  # Per-agent defaults, used when AGENT_MODEL is blank. Pinned rather than left to each
+  # CLI's own default, so the model cannot change under you between runs.
+  #
+  # Both are the cheap tier on purpose. Be aware of what that trades: the brief this agent
+  # follows is demanding — read the project's conventions, reuse its page objects, reconcile
+  # ambiguous locators against their alternatives, keep platform subclasses straight. A
+  # cheaper model follows fewer of those instructions, and it fails QUIETLY: you get a test
+  # that compiles and does not fit the project, rather than an error. If the output looks
+  # shallow, raise the model here before assuming the recording was bad.
+  CLAUDE_MODEL: claude-haiku-4-5-20251001
   GEMINI_MODEL: gemini-3.5-flash-lite
-  # Claude only. Gemini CLI and Copilot have no equivalent hard spend stop.
+  # Claude only; Gemini CLI and Copilot have no equivalent hard spend stop. Note this cap
+  # already bounds what a run can cost, so a cheaper model buys less than it appears to.
   AGENT_BUDGET_USD: '1.00'
 
 jobs:
@@ -179,7 +185,7 @@ jobs:
             *)
               claude -p "$PROMPT" --output-format stream-json --verbose \
                 --permission-mode acceptEdits \
-                ${MODEL:+--model "$MODEL"} \
+                --model "${MODEL:-${{ env.CLAUDE_MODEL }}}" \
                 --max-budget-usd "${{ env.AGENT_BUDGET_USD }}"
               ;;
           esac
