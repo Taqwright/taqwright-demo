@@ -223,7 +223,8 @@ jobs:
           # Keyed on the RUN, not the test name: automating the same run twice would otherwise
           # push to a branch that already exists, and git rejects that as a non-fast-forward
           # ("fetch first") — which reads like a permissions problem and is not.
-          git checkout -b "taqwright/run-${{ inputs.run_id }}-$GITHUB_RUN_ID"
+          BRANCH="taqwright/run-${{ inputs.run_id }}-$GITHUB_RUN_ID"
+          git checkout -b "$BRANCH"
           git add -A
           if git diff --cached --quiet; then
             echo "::error::The agent produced no changes, so there is nothing to open a pull request for. Check the step above for what it reported." >&2
@@ -255,4 +256,20 @@ jobs:
             cat /tmp/steps.md 2>/dev/null || true
           } > /tmp/pr-body.md
 
-          gh pr create --title "test: ${{ inputs.test_name }}" --body-file /tmp/pr-body.md
+          # The branch is already pushed by this point, so a failure here loses no work — it
+          # only loses the pull request. Say that, and say where the work is.
+          #
+          # "GitHub Actions is not permitted to create or approve pull requests" is a REPO
+          # SETTING, off by default, and it is the single most likely first-run failure of
+          # this whole workflow. The raw GraphQL error names neither the setting nor the
+          # branch you can open by hand.
+          COMPARE="${{ github.server_url }}/${{ github.repository }}/compare/${{ github.event.repository.default_branch }}...$BRANCH?expand=1"
+          if ! gh pr create --title "test: ${{ inputs.test_name }}" --body-file /tmp/pr-body.md 2>/tmp/pr-err; then
+            cat /tmp/pr-err >&2
+            if grep -qi "not permitted to create or approve pull requests" /tmp/pr-err; then
+              echo "::error::The test was written and pushed to $BRANCH — nothing is lost. GitHub Actions is not allowed to open pull requests in this repository, which is off by default. Turn it on at Settings → Actions → General → Workflow permissions → 'Allow GitHub Actions to create and approve pull requests'. Until then, open it by hand: $COMPARE" >&2
+            else
+              echo "::error::The test was written and pushed to $BRANCH — nothing is lost. Opening the pull request failed for the reason above. Open it by hand: $COMPARE" >&2
+            fi
+            exit 1
+          fi
