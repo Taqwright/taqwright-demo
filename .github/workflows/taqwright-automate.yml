@@ -256,20 +256,36 @@ jobs:
             cat /tmp/steps.md 2>/dev/null || true
           } > /tmp/pr-body.md
 
-          # The branch is already pushed by this point, so a failure here loses no work — it
-          # only loses the pull request. Say that, and say where the work is.
+          # The branch is pushed by this point, so the work is safe whatever happens here.
+          # The pull request is a convenience on top of it.
           #
-          # "GitHub Actions is not permitted to create or approve pull requests" is a REPO
-          # SETTING, off by default, and it is the single most likely first-run failure of
-          # this whole workflow. The raw GraphQL error names neither the setting nor the
-          # branch you can open by hand.
+          # "GitHub Actions is not permitted to create or approve pull requests" is a policy,
+          # settable per repository and enforceable org-wide, and plenty of organisations keep
+          # it off deliberately — an Actions-created pull request that Actions can also approve
+          # is a way around review. That is a legitimate choice, not a misconfiguration, so the
+          # job SUCCEEDS and hands you a link instead of failing red every single run.
           COMPARE="${{ github.server_url }}/${{ github.repository }}/compare/${{ github.event.repository.default_branch }}...$BRANCH?expand=1"
-          if ! gh pr create --title "test: ${{ inputs.test_name }}" --body-file /tmp/pr-body.md 2>/tmp/pr-err; then
-            cat /tmp/pr-err >&2
-            if grep -qi "not permitted to create or approve pull requests" /tmp/pr-err; then
-              echo "::error::The test was written and pushed to $BRANCH — nothing is lost. GitHub Actions is not allowed to open pull requests in this repository, which is off by default. Turn it on at Settings → Actions → General → Workflow permissions → 'Allow GitHub Actions to create and approve pull requests'. Until then, open it by hand: $COMPARE" >&2
-            else
-              echo "::error::The test was written and pushed to $BRANCH — nothing is lost. Opening the pull request failed for the reason above. Open it by hand: $COMPARE" >&2
-            fi
-            exit 1
+          if gh pr create --title "test: ${{ inputs.test_name }}" --body-file /tmp/pr-body.md 2>/tmp/pr-err; then
+            exit 0
           fi
+          cat /tmp/pr-err >&2
+          if grep -qi "not permitted to create or approve pull requests" /tmp/pr-err; then
+            # Summary rather than an error: this renders on the run page, which is where
+            # someone who just pressed a button in LIME is actually looking.
+            {
+              echo "### Test written — open the pull request"
+              echo
+              echo "\`${{ inputs.test_name }}\` is committed and pushed to \`$BRANCH\`."
+              echo
+              echo "[**Open the pull request →**]($COMPARE)"
+              echo
+              echo "This step is manual because GitHub Actions is not permitted to create pull"
+              echo "requests here. That is a repository or organisation policy, and a deliberate"
+              echo "one in many organisations. To automate it, enable *Allow GitHub Actions to"
+              echo "create and approve pull requests* under Settings → Actions → General."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Test pushed to $BRANCH. Open the pull request: $COMPARE"
+            exit 0
+          fi
+          echo "::error::The test was written and pushed to $BRANCH — nothing is lost. Opening the pull request failed for the reason above. Open it by hand: $COMPARE" >&2
+          exit 1
