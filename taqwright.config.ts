@@ -253,6 +253,54 @@ const allProjects: TaqwrightProjectConfig[] = [
       },
     },
     {
+      // Cloud execution on pCloudy — Android real device. Credentials come from
+      // env vars PCLOUDY_USERNAME / PCLOUDY_API_KEY. PCLOUDY_CLOUD_URL is
+      // optional: it defaults to the Global cloud (https://device.pcloudy.com);
+      // set it only if your account lives on a regional/enterprise cloud.
+      //   PCLOUDY_USERNAME=… PCLOUDY_API_KEY=… \
+      //   npx taqwright test --project pcloudy-android
+      name: 'pcloudy-android',
+      testDir: './tests/android',
+      // Serial: pCloudy books a device for `durationInMinutes` per session and
+      // bills it against the account's minute balance, so don't fan out until
+      // the plan's concurrency (and balance) is known.
+      workers: 1,
+      // Device booking + app install happen before the test body, same as the
+      // other cloud projects — keep the wider budget.
+      timeout: 300_000,
+      use: {
+        platform: Platform.ANDROID,
+        device: {
+          provider: 'pcloudy',
+          name: 'Samsung Galaxy S22',
+          osVersion: '14.0.0',
+          // Required in practice: pCloudy picks a device by an exact composite
+          // id ending in a per-handset alias (`_09b8b`) that can't be derived
+          // from name + osVersion — with it set, `name`/`osVersion` are labels.
+          // Copy one from a device tile (or the "Device ID" field) in
+          // `npm run codegen` → pCloudy. Plans without SIM-device access refuse
+          // handsets that have a SIM ("plan doesnot support sim based devices"),
+          // so this default is a SIM-less device on the Global cloud.
+          deviceFullName: process.env.TAQ_PCLOUDY_DEVICE || 'Samsung_GalaxyS22_Android_14.0.0_09b8b',
+          // Booking window per session, in minutes. Must fit the account's
+          // remaining balance or pCloudy refuses the session outright.
+          durationInMinutes: 10,
+        },
+        appium: { connectionTimeout: 240_000 },
+        // Pre-uploaded pCloudy build, referenced by its STORED file name (pCloudy
+        // appends a timestamp on upload). It lives in one account's pCloudy
+        // Drive — on another account, pass the local .apk via TAQ_APK (uploaded
+        // once per worker; the run log prints `Uploaded: pcloudy:<name>` to
+        // reuse) or your own `pcloudy:<name>`.
+        buildPath: process.env.TAQ_APK || 'pcloudy:DemoApp-v1.0.0-1790834000.apk',
+        // pCloudy needs the package id alongside the build to launch it.
+        appBundleId: 'com.taqelah.demo_app',
+        resetBetweenTests: true,
+        trace: 'on',
+        video: 'on-failure',
+      },
+    },
+    {
       // Local iOS simulator. taqwright uses provider 'emulator' for simulators
       // too; XCUITest auto-boots the named simulator. Needs the .app (simulator
       // build) and the iOS bundle id (note: camelCase, differs from Android).

@@ -3,7 +3,7 @@
 Mobile UI test suite for the **DemoApp** (a Flutter app), built with
 [taqwright](https://www.npmjs.com/package/@taqwright/taqwright) — a Playwright-style test
 runner with a flat locator API over Appium. Tests run on local emulators /
-simulators or on real devices in the cloud via BrowserStack or LambdaTest.
+simulators or on real devices in the cloud via BrowserStack, LambdaTest or pCloudy.
 
 ## Requirements
 
@@ -14,7 +14,7 @@ simulators or on real devices in the cloud via BrowserStack or LambdaTest.
   `Pixel_10_Pro_XL_2`. taqwright cold-boots the AVDs for you and waits until
   each is ready.
 - **iOS:** Xcode + an `iPhone 17 Pro` simulator (macOS only)
-- A BrowserStack account for the cloud projects (optional)
+- A BrowserStack, LambdaTest or pCloudy account for the cloud projects (optional)
 
 ## Setup
 
@@ -105,6 +105,30 @@ your plan's concurrency limit. It points at a pre-uploaded app id
 checked-in `.ipa`, so it requires `TAQ_IPA` (a local `.ipa` to upload, or an
 already-uploaded `lt://<app-id>`).
 
+### Running on pCloudy
+
+```bash
+PCLOUDY_USERNAME=… PCLOUDY_API_KEY=… \
+  npx taqwright test --project pcloudy-android
+```
+
+`pcloudy-android` runs serially (`workers: 1`) — every session books a device
+for `durationInMinutes` (10) against your account's minute balance.
+`PCLOUDY_CLOUD_URL` defaults to the Global cloud (`https://device.pcloudy.com`);
+set it only if your account is on a regional or enterprise cloud.
+
+pCloudy picks a device by an exact id such as
+`Samsung_GalaxyS22_Android_14.0.0_09b8b` (the default) — copy one from a device tile in
+`npm run codegen` → pCloudy and pass it via `TAQ_PCLOUDY_DEVICE`. The default
+build is a pre-uploaded `pcloudy:<file-name>` in one account's pCloudy Drive; on
+your own account pass the local `.apk` via `TAQ_APK` (the run log prints
+`Uploaded: pcloudy:<name>`, which you can reuse to skip the upload):
+
+```bash
+TAQ_PCLOUDY_DEVICE=<device-id> TAQ_APK=./app/DemoApp-v1.0.0.apk \
+  npx taqwright test --project pcloudy-android
+```
+
 ## Project layout
 
 ```
@@ -128,6 +152,7 @@ already-uploaded `lt://<app-id>`).
 | `android-auto-2`       | Android  | auto-detect host AVDs                       | 2       | local        |
 | `browserstack-android` | Android  | Google Pixel 8 (Android 14)                | 5       | BrowserStack |
 | `lambdatest-android`   | Android  | Pixel 8 (Android 14)                        | 5       | LambdaTest   |
+| `pcloudy-android`      | Android  | Samsung Galaxy S22 (Android 14)             | 1       | pCloudy      |
 | `ios`                  | iOS      | iPhone 17 Pro (simulator)                   | 1       | local        |
 | `browserstack-ios`     | iOS      | iPhone 15 (iOS 17)                          | 1       | BrowserStack |
 | `lambdatest-ios`       | iOS      | iPhone 15 (iOS 17)                          | 1       | LambdaTest   |
